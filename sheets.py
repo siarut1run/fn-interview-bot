@@ -34,23 +34,31 @@ def save_interview(guild_id, user_id, user_name, date, time):
         print(f"[ERROR] save_interview: {e}")
 
 # ================= キャンセル（完全削除） =================
-def cancel_interview(guild_id, user_id):
+def cancel_interview(guild_id, user_id, date, time):
+    """
+    指定ユーザー + 日付 + 時間の完全一致を削除
+    """
     try:
         sheet = get_sheet(guild_id)
         data = sheet.get_all_values()
 
         deleted = False
 
-        # ヘッダー除外
-        for i, row in enumerate(data[1:], start=2):
-            if row[0] == str(user_id):
-                sheet.delete_rows(i)
-                print(f"✅ 削除: user_id={user_id} row={i}")
-                deleted = True
-                break
+        # 下から削除（行ズレ防止）
+        for i in range(len(data), 0, -1):
+            row = data[i-1]
 
-        if not deleted:
-            print(f"[WARN] 見つからない: {user_id}")
+            if len(row) < 4:
+                continue
+
+            if (
+                row[0] == str(user_id) and
+                row[2] == date and
+                row[3] == time
+            ):
+                sheet.delete_rows(i)
+                deleted = True
+                print(f"✅ 削除成功: {user_id} {date} {time}")
 
         return deleted
 
