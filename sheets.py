@@ -45,26 +45,51 @@ def save_interview(guild_id, user_id, user_name, date, time):
         print(f"[ERROR] save_interview: {e}")
 
 # ================= キャンセル =================
-def cancel_interview(guild_id, user_id):
-    """
-    指定ユーザーの面接を完全に削除（ヘッダー考慮）
-    """
-    try:
-        sheet = get_sheet(guild_id)
-        data = sheet.get_all_values()
-        deleted = False
-        for i, row in enumerate(data[1:], start=2):  # 1行目はヘッダーなので start=2
-            if row[0] == str(user_id):
-                sheet.delete_rows(i)
-                print(f"✅ 面接削除: user_id={user_id}, row={i}")
-                deleted = True
-                break  # 同じユーザーの重複予約も消したい場合は break を削除
-        if not deleted:
-            print(f"[WARN] キャンセル対象が見つかりませんでした: {user_id}")
-        return deleted
-    except Exception as e:
-        print(f"[ERROR] cancel_interview: {e}")
-        return False
+
+class CancelSelect(discord.ui.Select):
+    def __init__(self, guild):
+        self.guild = guild
+        future_reserves = get_future_reservations(guild.id)
+
+        options = []
+        if future_reserves:
+            for idx, r in enumerate(future_reserves[:25]):
+                value = f"{r[0]}_{r[2]}_{r[3]}_{idx}"  # 一意化
+                label = f"{r[1]}｜{r[2]} {r[3]}"
+                options.append(discord.SelectOption(label=label, value=value))
+        else:
+            options = [discord.SelectOption(label="キャンセル可能な面接なし", value="none", default=True)]
+
+        super().__init__(placeholder="キャンセルする面接者", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "none":
+            await interaction.response.send_message("❌ キャンセル可能な面接はありません", ephemeral=True)
+            return
+
+        uid = int(self.values[0].split("_")[0])
+
+        # ================= 削除実行 =================
+        result = cancel_interview(interaction.guild.id, uid)
+
+        if not result:
+            await interaction.response.send_message("⚠️ 削除に失敗しました", ephemeral=True)
+            return
+
+        # ================= 最新データで再生成 =================
+        new_view = CancelView(interaction.guild)
+
+        await interaction.response.send_message(
+            f"❌ キャンセル完了: <@{uid}>\n\n👇 更新された一覧",
+            view=new_view,
+            ephemeral=True
+        )
+
+
+class CancelView(View):
+    def __init__(self, guild):
+        super().__init__(timeout=180)
+        self.add_item(CancelSelect(guild))
 
 # ================= 時間重複確認 =================
 def is_time_conflict(guild_id, date, time):
