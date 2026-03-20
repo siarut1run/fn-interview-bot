@@ -258,7 +258,7 @@ notified_reserves = set()
 
 @tasks.loop(minutes=1)
 async def reminder_loop():
-    now = datetime.now()
+    now = datetime.now(JST)
 
     for guild in bot.guilds:
         ch = get_notify_channel_obj(guild)
@@ -270,14 +270,17 @@ async def reminder_loop():
 
             try:
                 dt = datetime.strptime(r[2] + " " + r[3], "%Y-%m-%d %H:%M")
+                dt = dt.replace(tzinfo=JST)  # ← これ超重要
             except:
                 continue
 
+            # 10分前通知
             if dt - timedelta(minutes=REMIND_BEFORE_MINUTES) <= now < dt:
                 if reserve_id + "_before" not in notified_reserves:
                     await ch.send(f"🔔 面接{REMIND_BEFORE_MINUTES}分前 <@{r[0]}>")
                     notified_reserves.add(reserve_id + "_before")
 
+            # 開始通知
             if dt <= now < dt + timedelta(minutes=1):
                 if reserve_id + "_start" not in notified_reserves:
                     await ch.send(f"⏰ 面接開始 <@{r[0]}>")
