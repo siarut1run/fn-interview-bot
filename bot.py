@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 from discord.ui import View, Button, Select
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 import json
 
@@ -14,6 +14,10 @@ intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# ================= JST =================
+
+JST = timezone(timedelta(hours=9))
 
 # ================= 通知チャンネル =================
 
@@ -51,18 +55,24 @@ def get_admin_notify_channel_obj(guild):
             return ch
     return None
 
-# ================= 共通：未来予約取得 =================
+# ================= 共通：未来予約取得（JST対応） =================
 
 def get_future_reservations(guild_id):
-    now = datetime.now()
+    now = datetime.now(JST)
     future_reserves = []
+
     for r in list_interviews(guild_id):
         try:
             dt = datetime.strptime(r[2] + " " + r[3], "%Y-%m-%d %H:%M")
+            dt = dt.replace(tzinfo=JST)
+
             if dt > now:
                 future_reserves.append(r)
-        except:
+
+        except Exception as e:
+            print(f"[ERROR] datetime parse: {e}")
             continue
+
     return future_reserves
 
 # ================= 面接予約 =================
@@ -249,6 +259,7 @@ notified_reserves = set()
 @tasks.loop(minutes=1)
 async def reminder_loop():
     now = datetime.now()
+
     for guild in bot.guilds:
         ch = get_notify_channel_obj(guild)
         if not ch:
@@ -256,6 +267,7 @@ async def reminder_loop():
 
         for r in list_interviews(guild.id):
             reserve_id = f"{guild.id}_{r[0]}_{r[2]}_{r[3]}"
+
             try:
                 dt = datetime.strptime(r[2] + " " + r[3], "%Y-%m-%d %H:%M")
             except:
