@@ -139,19 +139,15 @@ class MemberSelect(discord.ui.Select):
         uid = int(self.values[0])
         member = interaction.guild.get_member(uid)
 
-        # =========================
-        # 追加：時間重複チェック
-        # =========================
+        # ================= 重複チェック =================
         if is_time_conflict(interaction.guild.id, self.date_str, self.time_str):
             await interaction.response.send_message(
-                f"❌ この時間にはすでに予約があります。\n日時: {self.date_str} {self.time_str}",
+                f"❌ この日時にはすでに予約があります。\n📅 {self.date_str} 🕒 {self.time_str}",
                 ephemeral=True
             )
             return
+        # ==========================================
 
-        # =========================
-        # 通常の予約処理
-        # =========================
         save_interview(interaction.guild.id, str(uid), member.display_name, self.date_str, self.time_str)
 
         # 本人向け通知
@@ -160,7 +156,7 @@ class MemberSelect(discord.ui.Select):
             ephemeral=True
         )
 
-        # 運営用通知
+        # 運営用通知チャンネルに送信
         notify_ch = get_admin_notify_channel_obj(interaction.guild)
         if notify_ch:
             await notify_ch.send(
