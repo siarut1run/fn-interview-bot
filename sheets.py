@@ -35,12 +35,13 @@ def save_interview(guild_id, user_id, user_name, date, time):
 
 # キャンセル
 def cancel_interview(guild_id, user_id):
-    sheet = get_sheet(guild_id)
+    sheet = get_guild_sheet(guild_id)  # 既存コード
     data = sheet.get_all_values()
-    for i, row in enumerate(data[1:], start=2):
+    
+    for i, row in enumerate(data, start=1):
         if row[0] == str(user_id):
-            sheet.delete_row(i)
-            return True
+            sheet.delete_rows(i)  # ← delete_row → delete_rows に変更
+            break
     return False
 
 # 時間重複確認
