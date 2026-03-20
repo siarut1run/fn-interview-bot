@@ -1,6 +1,7 @@
+# bot.py
 import discord
 from discord.ext import commands, tasks
-from discord.ui import View, Button, Modal, TextInput, Select
+from discord.ui import View, Button, Select, Modal, TextInput
 from datetime import datetime, timedelta
 import os
 
@@ -14,10 +15,10 @@ from sheets import (
     get_notify_channel,
 )
 
-# ================= BOT設定 =================
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ================= 通知チャンネル =================
@@ -30,78 +31,45 @@ def get_notify_channel_obj(guild):
     return guild.system_channel
 
 # ================= 日付入力 =================
-class DateInputModal(Modal, title="日付入力"):
-    year = TextInput(label="年 (例: 2026)")
-    month = TextInput(label="月 (例: 3)")
-    day = TextInput(label="日 (例: 21)")
+class DateInputModal(Modal, title="面接日入力"):
+    date_str = TextInput(label="日付 (例: 2026-03-20)")
 
     def __init__(self, guild):
         super().__init__()
         self.guild = guild
 
     async def on_submit(self, interaction: discord.Interaction):
-        date_str = f"{self.year.value}-{int(self.month.value):02}-{int(self.day.value):02}"
         await interaction.response.send_message(
-            f"📅 日付: {date_str}\n午前か午後を選択してください",
-            view=PeriodView(self.guild, date_str),
-            ephemeral=True
-        )
-
-# ================= 午前午後 =================
-class PeriodView(View):
-    def __init__(self, guild, date_str):
-        super().__init__(timeout=180)
-        self.guild = guild
-        self.date_str = date_str
-
-    @discord.ui.button(label="🌅 午前", style=discord.ButtonStyle.primary)
-    async def am(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_message(
-            "午前の時間を選択",
-            view=TimeView(self.guild, self.date_str, "am"),
-            ephemeral=True
-        )
-
-    @discord.ui.button(label="🌇 午後", style=discord.ButtonStyle.success)
-    async def pm(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_message(
-            "午後の時間を選択",
-            view=TimeView(self.guild, self.date_str, "pm"),
+            f"⏰ 面接時間を選んでください", 
+            view=TimeSelectView(self.guild, self.date_str.value),
             ephemeral=True
         )
 
 # ================= 時間選択 =================
 class TimeSelect(Select):
-    def __init__(self, period, guild, date_str):
+    def __init__(self, guild, date_str):
         self.guild = guild
         self.date_str = date_str
 
-        if period == "am":
-            hours = range(0, 12)
-        else:
-            hours = range(12, 24)
+        options = []
+        for h in range(24):
+            for m in range(0, 60, 10):  # 10分刻み
+                t = f"{h:02}:{m:02}"
+                options.append(discord.SelectOption(label=t, value=t))
 
-        # 30分刻みでプルダウン
-        times = []
-        for h in hours:
-            times.append(f"{h:02}:00")
-            times.append(f"{h:02}:30")
-
-        options = [discord.SelectOption(label=t, value=t) for t in times[:25]]  # 最大25個
-        super().__init__(placeholder="時間を選択", options=options)
+        super().__init__(placeholder="面接時間", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        time_str = self.values[0]
         await interaction.response.send_message(
-            "👤 面接者を選択してください",
-            view=MemberView(self.guild, self.date_str, time_str),
+            "👤 面接者を選んでください", 
+            view=MemberSelectView(self.guild, self.date_str, self.values[0]),
             ephemeral=True
         )
 
-class TimeView(View):
-    def __init__(self, guild, date_str, period):
+class TimeSelectView(View):
+    def __init__(self, guild, date_str):
         super().__init__(timeout=180)
-        self.add_item(TimeSelect(period, guild, date_str))
+        self.add_item(TimeSelect(guild, date_str))
 
 # ================= 面接者選択 =================
 class MemberSelect(Select):
@@ -115,45 +83,52 @@ class MemberSelect(Select):
             for m in guild.members if not m.bot
         ][:25]
 
-        super().__init__(placeholder="面接者を選択", options=options)
+        super().__init__(placeholder="面接者選択", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        uid = self.values[0]
-        member = interaction.guild.get_member(int(uid))
+        uid = int(self.values[0])
+        member = interaction.guild.get_member(uid)
 
         if is_time_conflict(interaction.guild.id, self.date_str, self.time_str):
-            await interaction.response.send_message("❌ その時間は予約済み", ephemeral=True)
+            await interaction.response.send_message("❌ その時間は予約済みです", ephemeral=True)
             return
 
-        save_interview(
-            interaction.guild.id,
-            uid,
-            member.display_name,
-            self.date_str,
-            self.time_str
-        )
+        save_interview(interaction.guild.id, str(uid), member.display_name, self.date_str, self.time_str)
 
         await interaction.response.send_message(
             f"✅ 予約完了\n📅 {self.date_str}\n🕒 {self.time_str}\n👤 {member.mention}",
             ephemeral=True
         )
 
-class MemberView(View):
+class MemberSelectView(View):
     def __init__(self, guild, date_str, time_str):
         super().__init__(timeout=180)
         self.add_item(MemberSelect(guild, date_str, time_str))
 
 # ================= キャンセル =================
-class CancelModal(Modal, title="面接キャンセル"):
-    user_id = TextInput(label="面接者Discord ID")
+class CancelSelect(Select):
+    def __init__(self, guild):
+        self.guild = guild
+        self.reserves = list_interviews(guild.id)
+        options = []
+        for r in self.reserves:
+            label = f"{r[1]}｜{r[2]} {r[3]}"
+            value = f"{r[0]}|{r[2]}|{r[3]}"
+            options.append(discord.SelectOption(label=label, value=value))
+        super().__init__(placeholder="キャンセルする予約を選択", options=options)
 
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        ok = cancel_interview(interaction.guild.id, str(self.user_id.value))
+    async def callback(self, interaction: discord.Interaction):
+        uid, date_str, time_str = self.values[0].split("|")
+        ok = cancel_interview(interaction.guild.id, uid, date_str, time_str)
         if ok:
-            await interaction.followup.send("✅ キャンセル完了")
+            await interaction.response.send_message(f"✅ キャンセル完了: {date_str} {time_str}", ephemeral=True)
         else:
-            await interaction.followup.send("❌ 予約が見つかりません")
+            await interaction.response.send_message("❌ キャンセル失敗", ephemeral=True)
+
+class CancelView(View):
+    def __init__(self, guild):
+        super().__init__()
+        self.add_item(CancelSelect(guild))
 
 # ================= メインパネル =================
 class MainPanel(View):
@@ -166,16 +141,7 @@ class MainPanel(View):
 
     @discord.ui.button(label="キャンセル", style=discord.ButtonStyle.red)
     async def cancel(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(CancelModal())
-
-    @discord.ui.button(label="一覧", style=discord.ButtonStyle.blurple)
-    async def show_list(self, interaction: discord.Interaction, button: Button):
-        data = list_interviews(interaction.guild.id)
-        if not data:
-            msg = "予約はありません"
-        else:
-            msg = "\n".join([f"{r[1]}｜{r[2]} {r[3]}" for r in data])
-        await interaction.response.send_message(msg, ephemeral=True)
+        await interaction.response.send_message("キャンセルする予約を選択", view=CancelView(interaction.guild), ephemeral=True)
 
 # ================= 通知 =================
 notified_reserves = set()
