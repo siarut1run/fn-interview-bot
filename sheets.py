@@ -1,71 +1,72 @@
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+import json
+import os
 from datetime import datetime
 
-# ================= Google Sheets 認証 =================
-scope = [
-    "https://spreadsheets.google.com/feeds",
-    "https://www.googleapis.com/auth/drive",
-]
+# 環境変数からサービスアカウントJSON読み込み
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
+client = gspread.service_account_from_dict(json.loads(GOOGLE_CREDENTIALS_JSON))
 
-# Railway環境変数でJSONを読み込む場合
-import os, json
-creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
-creds_dict = json.loads(creds_json)
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-client = gspread.authorize(creds)
-
-# ================= サーバーID → シートID マップ =================
-sheet_map = {}
-
+# サーバーごとのシート名
 def get_sheet(guild_id):
-    """サーバーIDからシートオブジェクトを返す"""
-    gid = str(guild_id)
-    if gid not in sheet_map:
-        # サーバー登録時に新規シート作成
-        sheet = client.create(f"面接管理_{gid}")
-        worksheet = sheet.sheet1
-        # ヘッダー設定
-        worksheet.append_row(["UserID", "Name", "Date", "Time"])
-        sheet_map[gid] = sheet.id
-    sheet = client.open_by_key(sheet_map[gid])
-    return sheet.sheet1
+    name = f"面接管理_{guild_id}"
+    try:
+        # 既存シートを開く
+        sheet = client.open(name).sheet1
+    except gspread.SpreadsheetNotFound:
+        # 新規作成をやめて例外にする
+        raise Exception(f"シート {name} が見つかりません。事前に作成してサービスアカウントと共有してください")
+    return sheet
 
-# ================= 予約 =================
-def save_interview(guild_id, user_id, name, date, time):
-    ws = get_sheet(guild_id)
-    ws.append_row([user_id, name, date, time])
-
-# ================= キャンセル =================
-def cancel_interview(guild_id, user_id, date=None, time=None):
-    ws = get_sheet(guild_id)
-    records = ws.get_all_values()
-    for i, row in enumerate(records, start=1):
-        if row[0] == str(user_id):
-            if date and time:
-                if row[2] == date and row[3] == time:
-                    ws.delete_row(i)
-                    return True
-            else:
-                ws.delete_row(i)
-                return True
-    return False
-
-# ================= 一覧取得 =================
+# 予約一覧取得
 def list_interviews(guild_id):
-    ws = get_sheet(guild_id)
-    data = ws.get_all_values()
-    return data[1:]  # ヘッダー除外
+    try:
+        sheet = get_sheet(guild_id)
+        data = sheet.get_all_values()[1:]  # ヘッダー除く
+        return data
+    except Exception as e:
+        print(f"[ERROR] list_interviews: {e}")
+        return []
 
-# ================= バッティングチェック =================
-def is_time_conflict(guild_id, date, time):
-    interviews = list_interviews(guild_id)
-    for row in interviews:
-        if row[2] == date and row[3] == time:
+# 予約保存
+def save_interview(guild_id, user_id, user_name, date, time):
+    sheet = get_sheet(guild_id)
+    sheet.append_row([user_id, user_name, date, time])
+
+# キャンセル
+def cancel_interview(guild_id, user_id):
+    sheet = get_sheet(guild_id)
+    data = sheet.get_all_values()
+    for i, row in enumerate(data[1:], start=2):
+        if row[0] == str(user_id):
+            sheet.delete_row(i)
             return True
     return False
 
-# ================= サーバー登録 =================
-def register_guild(guild_id):
-    """新しいサーバーが追加されたときに呼ぶ"""
-    get_sheet(guild_id)  # get_sheet が自動で作成
+# 時間重複確認
+def is_time_conflict(guild_id, date, time):
+    data = list_interviews(guild_id)
+    for r in data:
+        if r[2] == date and r[3] == time:
+            return True
+    return False
+
+# 通知チャンネル管理（JSONで保持）
+NOTIFY_MAP_FILE = "notify_map.json"
+if not os.path.exists(NOTIFY_MAP_FILE):
+    with open(NOTIFY_MAP_FILE, "w", encoding="utf-8") as f:
+        f.write("{}")
+
+def set_notify_channel(guild_id, channel_id):
+    import json
+    with open(NOTIFY_MAP_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    data[str(guild_id)] = channel_id
+    with open(NOTIFY_MAP_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+def get_notify_channel(guild_id):
+    import json
+    with open(NOTIFY_MAP_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data.get(str(guild_id))
