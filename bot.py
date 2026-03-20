@@ -120,26 +120,24 @@ class CancelSelect(discord.ui.Select):
             r for r in list_interviews(guild.id)
             if datetime.strptime(r[2] + " " + r[3], "%Y-%m-%d %H:%M") >= datetime.now()
         ]
-        # 選択肢作成、一意の value にする
+        options = []
         if future_reserves:
-            options = [
-                discord.SelectOption(
-                    label=f"{r[1]}｜{r[2]} {r[3]}",
-                    value=f"{r[0]}_{r[2]}_{r[3]}"  # UID + 日時でユニーク化
-                )
-                for r in future_reserves[:25]
-            ]
+            for idx, r in enumerate(future_reserves[:25]):
+                # 一意化のため idx を追加
+                value = f"{r[0]}_{r[2]}_{r[3]}_{idx}"
+                label = f"{r[1]}｜{r[2]} {r[3]}"
+                options.append(discord.SelectOption(label=label, value=value))
         else:
             options = [discord.SelectOption(label="キャンセル可能な面接なし", value="none", default=True)]
+
         super().__init__(placeholder="キャンセルする面接者", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        # 選択肢がない場合
         if self.values[0] == "none":
             await interaction.response.send_message("❌ キャンセル可能な面接はありません", ephemeral=True)
             return
 
-        # UID を取り出す
+        # UID は value を _ で分割して取得
         uid = int(self.values[0].split("_")[0])
         cancel_interview(interaction.guild.id, uid)
         await interaction.response.send_message(f"❌ キャンセル完了: <@{uid}>", ephemeral=True)
