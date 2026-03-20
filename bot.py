@@ -23,27 +23,32 @@ def get_notify_channel_obj(guild):
     return guild.system_channel
 
 # ===== 日付入力モーダル =====
-class DateInputModal(Modal, title="日付入力"):
-    year = TextInput(label="年 (例: 2026)")
-    month = TextInput(label="月 (例: 3)")
-    day = TextInput(label="日 (例: 21)")
-
+class DateInputModal(Modal):
     def __init__(self, guild):
-        super().__init__()
+        super().__init__(title="日付入力")
         self.guild = guild
+
+        self.year = TextInput(label="年 (例: 2026)")
+        self.month = TextInput(label="月 (例: 3)")
+        self.day = TextInput(label="日 (例: 21)")
+
+        self.add_item(self.year)
+        self.add_item(self.month)
+        self.add_item(self.day)
 
     async def on_submit(self, interaction: discord.Interaction):
         date_str = f"{self.year.value}-{int(self.month.value):02}-{int(self.day.value):02}"
         await interaction.response.send_modal(TimeInputModal(self.guild, date_str))
 
 # ===== 時間入力モーダル =====
-class TimeInputModal(Modal, title="時間入力"):
-    time = TextInput(label="時間 (HH:MM)", placeholder="例: 14:30", max_length=5)
-
+class TimeInputModal(Modal):
     def __init__(self, guild, date_str):
-        super().__init__()
+        super().__init__(title="時間入力")
         self.guild = guild
         self.date_str = date_str
+
+        self.time = TextInput(label="時間 (HH:MM)", placeholder="例: 14:30", max_length=5)
+        self.add_item(self.time)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.send_message(
