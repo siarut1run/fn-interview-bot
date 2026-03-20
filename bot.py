@@ -31,33 +31,35 @@ def get_notify_channel_obj(guild):
     return guild.system_channel
 
 # ================= 日付入力 =================
+from discord.ui import Modal, TextInput
+
 class DateInputModal(Modal, title="日付入力"):
     year = TextInput(label="年 (例: 2026)")
     month = TextInput(label="月 (例: 3)")
     day = TextInput(label="日 (例: 21)")
 
+    def __init__(self, guild):
+        super().__init__()
+        self.guild = guild
+
     async def on_submit(self, interaction: discord.Interaction):
         date_str = f"{self.year.value}-{int(self.month.value):02}-{int(self.day.value):02}"
-        await interaction.response.send_message(
-            f"📅 日付: {date_str}\n時間を入力してください (例: 14:30)",
-            view=TimeInputView(interaction.guild, date_str),
-            ephemeral=True
-        )
+        # ここで次の時間入力モーダルを表示
+        await interaction.response.send_modal(TimeInputModal(self.guild, date_str))
 
 # ================= 時間入力 =================
-class TimeInputView(View):
+class TimeInputModal(Modal, title="時間入力"):
+    time = TextInput(label="時間 (HH:MM)", placeholder="例: 14:30", max_length=5)
+
     def __init__(self, guild, date_str):
-        super().__init__(timeout=180)
+        super().__init__()
         self.guild = guild
         self.date_str = date_str
-        self.time_input = TextInput(label="時間 (HH:MM)", placeholder="例: 14:30", max_length=5)
-        self.add_item(self.time_input)
 
     async def on_submit(self, interaction: discord.Interaction):
-        time_str = self.time_input.value
         await interaction.response.send_message(
             "👤 面接者を選択してください",
-            view=MemberView(self.guild, self.date_str, time_str),
+            view=MemberView(self.guild, self.date_str, self.time.value),
             ephemeral=True
         )
 
