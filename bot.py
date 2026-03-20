@@ -2,17 +2,10 @@ import discord
 from discord.ext import commands, tasks
 from discord.ui import View, Button, Modal, TextInput, Select
 from datetime import datetime, timedelta
-import os
-import json
+import os, json
 
 from config import ADMIN_ROLE_NAME, REMIND_BEFORE_MINUTES
-from sheets import (
-    save_interview,
-    cancel_interview,
-    list_interviews,
-    is_time_conflict,
-    get_sheet
-)
+from sheets import save_interview, cancel_interview, list_interviews, is_time_conflict, register_guild
 
 # ================= BOT設定 =================
 intents = discord.Intents.default()
@@ -20,18 +13,16 @@ intents.members = True
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ================= 管理者チェック =================
-def is_admin(member):
-    return any(role.name == ADMIN_ROLE_NAME for role in member.roles)
-
 # ================= 通知チャンネル管理 =================
-def load_notify_map():
-    return json.loads(os.getenv("NOTIFY_MAP", "{}"))
+if os.path.exists("notify_map.json"):
+    with open("notify_map.json", "r") as f:
+        notify_map = json.load(f)
+else:
+    notify_map = {}
 
-def save_notify_map(data):
-    os.environ["NOTIFY_MAP"] = json.dumps(data)
-
-notify_map = load_notify_map()
+def save_notify_map():
+    with open("notify_map.json", "w") as f:
+        json.dump(notify_map, f)
 
 def get_notify_channel(guild):
     cid = notify_map.get(str(guild.id))
@@ -40,6 +31,10 @@ def get_notify_channel(guild):
         if ch:
             return ch
     return guild.system_channel
+
+# ================= 管理者チェック =================
+def is_admin(member):
+    return any(role.name == ADMIN_ROLE_NAME for role in member.roles)
 
 # ================= 日付入力 =================
 class DateInputModal(Modal, title="面接日入力"):
@@ -152,7 +147,7 @@ class MemberView(View):
         super().__init__(timeout=180)
         self.add_item(MemberSelect(guild, date_str, time_str))
 
-# ================= キャンセル =================
+# ================= キャンセルボタン =================
 class CancelButton(Button):
     def __init__(self, guild_id, user_id, date, time):
         super().__init__(label="❌", style=discord.ButtonStyle.red)
@@ -241,12 +236,16 @@ async def reminder_loop():
 @bot.command()
 @commands.has_role(ADMIN_ROLE_NAME)
 async def panel(ctx):
+    register_guild(ctx.guild.id)  # サーバー登録＋シート作成
     await ctx.send("📋 面接管理パネル", view=MainPanel())
 
 @bot.command()
 @commands.has_role(ADMIN_ROLE_NAME)
 async def setnotify(ctx, channel: discord.TextChannel):
     notify_map[str(ctx.guild.id)] = channel.id
+    # JSONに永続化
+    with open("notify_map.json", "w") as f:
+        json.dump(notify_map, f)
     await ctx.send(f"✅ 通知チャンネル設定: {channel.mention}")
 
 # ================= 起動 =================
