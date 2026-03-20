@@ -61,8 +61,7 @@ def get_future_reservations(guild_id):
             dt = datetime.strptime(r[2] + " " + r[3], "%Y-%m-%d %H:%M")
             if dt > now:
                 future_reserves.append(r)
-        except Exception as e:
-            print(f"[ERROR] datetime parse failed for {r}: {e}")
+        except:
             continue
     return future_reserves
 
@@ -91,12 +90,14 @@ class HourSelect(discord.ui.Select):
     def __init__(self, date_str, guild):
         self.date_str = date_str
         self.guild = guild
-        options = [discord.SelectOption(label=f"{h:02}", value=f"{h:02}") for h in range(0,24)]
+        options = [discord.SelectOption(label=f"{h:02}", value=f"{h:02}") for h in range(24)]
         super().__init__(placeholder="時間", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_message(
-            "分を選択してください", view=MinuteView(self.guild, self.date_str, self.values[0]), ephemeral=True
+            "分を選択してください",
+            view=MinuteView(self.guild, self.date_str, self.values[0]),
+            ephemeral=True
         )
 
 class MinuteSelect(discord.ui.Select):
@@ -111,8 +112,11 @@ class MinuteSelect(discord.ui.Select):
         minute_str = self.values[0]
         time_str = f"{self.hour_str}:{minute_str}"
         members = [m for m in self.guild.members if not m.bot]
+
         await interaction.response.send_message(
-            "面接者を選択してください", view=MemberView(self.guild, self.date_str, time_str, members), ephemeral=True
+            "面接者を選択してください",
+            view=MemberView(self.guild, self.date_str, time_str, members),
+            ephemeral=True
         )
 
 class TimeView(View):
@@ -139,28 +143,25 @@ class MemberSelect(discord.ui.Select):
         uid = int(self.values[0])
         member = interaction.guild.get_member(uid)
 
-        # ================= 重複チェック =================
+        # 重複チェック
         if is_time_conflict(interaction.guild.id, self.date_str, self.time_str):
             await interaction.response.send_message(
-                f"❌ この日時にはすでに予約があります。\n📅 {self.date_str} 🕒 {self.time_str}",
+                f"❌ この日時にはすでに予約があります\n📅 {self.date_str} 🕒 {self.time_str}",
                 ephemeral=True
             )
             return
-        # ==========================================
 
         save_interview(interaction.guild.id, str(uid), member.display_name, self.date_str, self.time_str)
 
-        # 本人向け通知
         await interaction.response.send_message(
             f"✅ 予約完了\n📅 {self.date_str}\n🕒 {self.time_str}\n👤 {member.mention}",
             ephemeral=True
         )
 
-        # 運営用通知チャンネルに送信
         notify_ch = get_admin_notify_channel_obj(interaction.guild)
         if notify_ch:
             await notify_ch.send(
-                f"📌 新しい面接予約が入りました\n📅 {self.date_str} {self.time_str}\n👤 面接者: {member.display_name} (<@{uid}>)"
+                f"📌 新しい面接予約\n📅 {self.date_str} {self.time_str}\n👤 {member.display_name} (<@{uid}>)"
             )
 
 class MemberView(View):
@@ -178,22 +179,34 @@ class CancelSelect(discord.ui.Select):
         options = []
         if future_reserves:
             for idx, r in enumerate(future_reserves[:25]):
-                value = f"{r[0]}_{r[2]}_{r[3]}_{idx}"  # 一意化
+                value = f"{r[0]}_{r[2]}_{r[3]}_{idx}"
                 label = f"{r[1]}｜{r[2]} {r[3]}"
                 options.append(discord.SelectOption(label=label, value=value))
         else:
-            options = [discord.SelectOption(label="キャンセル可能な面接なし", value="none", default=True)]
+            options = [discord.SelectOption(label="キャンセル可能な面接なし", value="none")]
 
         super().__init__(placeholder="キャンセルする面接者", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         if self.values[0] == "none":
-            await interaction.response.send_message("❌ キャンセル可能な面接はありません", ephemeral=True)
+            await interaction.response.send_message("❌ 予約なし", ephemeral=True)
             return
 
-        uid = int(self.values[0].split("_")[0])
-        cancel_interview(interaction.guild.id, uid)
-        await interaction.response.send_message(f"❌ キャンセル完了: <@{uid}>", ephemeral=True)
+        parts = self.values[0].split("_")
+        uid = int(parts[0])
+        date = parts[1]
+        time = parts[2]
+
+        result = cancel_interview(interaction.guild.id, uid, date, time)
+
+        if not result:
+            await interaction.response.send_message("⚠️ 削除失敗", ephemeral=True)
+            return
+
+        await interaction.response.send_message(
+            f"❌ キャンセル完了: <@{uid}>",
+            ephemeral=True
+        )
 
 class CancelView(View):
     def __init__(self, guild):
@@ -213,16 +226,20 @@ class MainPanel(View):
     @discord.ui.button(label="キャンセル", style=discord.ButtonStyle.red)
     async def cancel(self, interaction: discord.Interaction, button):
         await interaction.response.send_message(
-            "誰をキャンセルしますか？", view=CancelView(interaction.guild), ephemeral=True
+            "誰をキャンセルしますか？",
+            view=CancelView(interaction.guild),
+            ephemeral=True
         )
 
     @discord.ui.button(label="一覧", style=discord.ButtonStyle.blurple)
     async def show_list(self, interaction: discord.Interaction, button):
         future_reserves = get_future_reservations(interaction.guild.id)
+
         if not future_reserves:
             msg = "予約はありません"
         else:
             msg = "\n".join([f"{r[1]}｜{r[2]} {r[3]}" for r in future_reserves])
+
         await interaction.response.send_message(msg, ephemeral=True)
 
 # ================= 通知ループ =================
@@ -248,6 +265,7 @@ async def reminder_loop():
                 if reserve_id + "_before" not in notified_reserves:
                     await ch.send(f"🔔 面接{REMIND_BEFORE_MINUTES}分前 <@{r[0]}>")
                     notified_reserves.add(reserve_id + "_before")
+
             if dt <= now < dt + timedelta(minutes=1):
                 if reserve_id + "_start" not in notified_reserves:
                     await ch.send(f"⏰ 面接開始 <@{r[0]}>")
