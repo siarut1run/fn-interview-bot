@@ -22,7 +22,7 @@ def get_sheet(guild_id):
 # ================= 予約一覧 =================
 def list_interviews(guild_id):
     """
-    予約一覧を取得
+    予約一覧を取得（ヘッダー除く）
     """
     try:
         sheet = get_sheet(guild_id)
@@ -47,17 +47,21 @@ def save_interview(guild_id, user_id, user_name, date, time):
 # ================= キャンセル =================
 def cancel_interview(guild_id, user_id):
     """
-    指定ユーザーの面接をキャンセル（削除）
+    指定ユーザーの面接を完全に削除（ヘッダー考慮）
     """
     try:
         sheet = get_sheet(guild_id)
         data = sheet.get_all_values()
-        for i, row in enumerate(data, start=1):  # gspreadは1-indexed
+        deleted = False
+        for i, row in enumerate(data[1:], start=2):  # 1行目はヘッダーなので start=2
             if row[0] == str(user_id):
-                sheet.delete_rows(i)  # 正しいメソッド
+                sheet.delete_rows(i)
                 print(f"✅ 面接削除: user_id={user_id}, row={i}")
-                return True
-        return False
+                deleted = True
+                break  # 同じユーザーの重複予約も消したい場合は break を削除
+        if not deleted:
+            print(f"[WARN] キャンセル対象が見つかりませんでした: {user_id}")
+        return deleted
     except Exception as e:
         print(f"[ERROR] cancel_interview: {e}")
         return False
