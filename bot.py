@@ -24,6 +24,21 @@ def get_notify_channel_obj(guild):
             return ch
     return guild.system_channel
 
+# ================= 共通：未来予約取得 =================
+
+def get_future_reservations(guild_id):
+    now = datetime.now()
+    future_reserves = []
+    for r in list_interviews(guild_id):
+        try:
+            dt = datetime.strptime(r[2] + " " + r[3], "%Y-%m-%d %H:%M")
+            if dt > now:  # 現在時刻より後のみ
+                future_reserves.append(r)
+        except Exception as e:
+            print(f"[ERROR] datetime parse failed for {r}: {e}")
+            continue
+    return future_reserves
+
 # ================= 面接予約 =================
 
 class DateInputModal(discord.ui.Modal, title="面接日選択"):
@@ -112,20 +127,12 @@ class MemberView(View):
 class CancelSelect(discord.ui.Select):
     def __init__(self, guild):
         self.guild = guild
-        future_reserves = []
-        now = datetime.now()
-        for r in list_interviews(guild.id):
-            try:
-                dt = datetime.strptime(r[2] + " " + r[3], "%Y-%m-%d %H:%M")
-                if dt >= now:
-                    future_reserves.append(r)
-            except:
-                continue
+        future_reserves = get_future_reservations(guild.id)
 
         options = []
         if future_reserves:
             for idx, r in enumerate(future_reserves[:25]):
-                value = f"{r[0]}_{r[2]}_{r[3]}_{idx}"
+                value = f"{r[0]}_{r[2]}_{r[3]}_{idx}"  # 一意化
                 label = f"{r[1]}｜{r[2]} {r[3]}"
                 options.append(discord.SelectOption(label=label, value=value))
         else:
@@ -165,16 +172,7 @@ class MainPanel(View):
 
     @discord.ui.button(label="一覧", style=discord.ButtonStyle.blurple)
     async def show_list(self, interaction: discord.Interaction, button):
-        now = datetime.now()
-        future_reserves = []
-        for r in list_interviews(interaction.guild.id):
-            try:
-                dt = datetime.strptime(r[2] + " " + r[3], "%Y-%m-%d %H:%M")
-                if dt >= now:
-                    future_reserves.append(r)
-            except:
-                continue
-
+        future_reserves = get_future_reservations(interaction.guild.id)
         if not future_reserves:
             msg = "予約はありません"
         else:
