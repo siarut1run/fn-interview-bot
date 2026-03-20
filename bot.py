@@ -3,6 +3,7 @@ from discord.ext import commands, tasks
 from discord.ui import View, Button, Select
 from datetime import datetime, timedelta
 import os
+import json
 
 from config import ADMIN_ROLE_NAME, REMIND_BEFORE_MINUTES
 from sheets import save_interview, cancel_interview, list_interviews, set_notify_channel, get_notify_channel
@@ -24,6 +25,32 @@ def get_notify_channel_obj(guild):
             return ch
     return guild.system_channel
 
+# ================= 運営通知チャンネル =================
+
+ADMIN_NOTIFY_FILE = "admin_notify_map.json"
+
+def set_admin_notify_channel(guild_id, channel_id):
+    if not os.path.exists(ADMIN_NOTIFY_FILE):
+        with open(ADMIN_NOTIFY_FILE, "w", encoding="utf-8") as f:
+            json.dump({}, f)
+    with open(ADMIN_NOTIFY_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    data[str(guild_id)] = str(channel_id)
+    with open(ADMIN_NOTIFY_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+def get_admin_notify_channel_obj(guild):
+    if not os.path.exists(ADMIN_NOTIFY_FILE):
+        return None
+    with open(ADMIN_NOTIFY_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    cid = data.get(str(guild.id))
+    if cid:
+        ch = guild.get_channel(int(cid))
+        if ch:
+            return ch
+    return None
+
 # ================= 共通：未来予約取得 =================
 
 def get_future_reservations(guild_id):
@@ -32,7 +59,7 @@ def get_future_reservations(guild_id):
     for r in list_interviews(guild_id):
         try:
             dt = datetime.strptime(r[2] + " " + r[3], "%Y-%m-%d %H:%M")
-            if dt > now:  # 現在時刻より後のみ
+            if dt > now:
                 future_reserves.append(r)
         except Exception as e:
             print(f"[ERROR] datetime parse failed for {r}: {e}")
@@ -112,10 +139,19 @@ class MemberSelect(discord.ui.Select):
         uid = int(self.values[0])
         member = interaction.guild.get_member(uid)
         save_interview(interaction.guild.id, str(uid), member.display_name, self.date_str, self.time_str)
+
+        # 本人向け通知
         await interaction.response.send_message(
             f"✅ 予約完了\n📅 {self.date_str}\n🕒 {self.time_str}\n👤 {member.mention}",
             ephemeral=True
         )
+
+        # 運営用通知チャンネルに送信
+        notify_ch = get_admin_notify_channel_obj(interaction.guild)
+        if notify_ch:
+            await notify_ch.send(
+                f"📌 新しい面接予約が入りました\n📅 {self.date_str} {self.time_str}\n👤 面接者: {member.display_name} (<@{uid}>)"
+            )
 
 class MemberView(View):
     def __init__(self, guild, date_str, time_str, members):
@@ -227,6 +263,12 @@ async def panel(ctx):
 async def setnotify(ctx, channel: discord.TextChannel):
     set_notify_channel(ctx.guild.id, str(channel.id))
     await ctx.send(f"✅ 通知チャンネルを {channel.mention} に設定しました")
+
+@bot.command()
+@commands.has_role(ADMIN_ROLE_NAME)
+async def setadminnotify(ctx, channel: discord.TextChannel):
+    set_admin_notify_channel(ctx.guild.id, str(channel.id))
+    await ctx.send(f"✅ 運営用通知チャンネルを {channel.mention} に設定しました")
 
 # ================= 起動 =================
 
