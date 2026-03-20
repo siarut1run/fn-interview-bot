@@ -90,6 +90,7 @@ class MemberSelect(discord.ui.Select):
         self.guild = guild
         self.date_str = date_str
         self.time_str = time_str
+        self.guild = guild
         options = [discord.SelectOption(label=m.display_name, value=str(m.id)) for m in members[:25]]
         super().__init__(placeholder="面接者", options=options)
 
@@ -97,8 +98,11 @@ class MemberSelect(discord.ui.Select):
         uid = int(self.values[0])
         member = interaction.guild.get_member(uid)
         save_interview(interaction.guild.id, str(uid), member.display_name, self.date_str, self.time_str)
-        await interaction.followup.send(
-            f"✅ 予約完了\n📅 {self.date_str}\n🕒 {self.time_str}\n👤 {member.mention}"
+
+        # ✅ 修正: followup ではなく response.send_message を使う
+        await interaction.response.send_message(
+            f"✅ 予約完了\n📅 {self.date_str}\n🕒 {self.time_str}\n👤 {member.mention}",
+            ephemeral=True
         )
 
 class MemberView(View):
