@@ -12,7 +12,6 @@ from sheets import save_interview, cancel_interview, list_interviews, set_notify
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
-
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ================= 通知チャンネル =================
@@ -50,45 +49,34 @@ class HourSelect(discord.ui.Select):
     def __init__(self, date_str, guild):
         self.date_str = date_str
         self.guild = guild
-        options = [
-            discord.SelectOption(label=f"{h:02}:00", value=f"{h:02}:00")
-            for h in range(0, 24)
-        ]
-        super().__init__(placeholder="時間を選択", options=options)
+        options = [discord.SelectOption(label=f"{h:02}", value=f"{h:02}") for h in range(0,24)]
+        super().__init__(placeholder="時間", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        time_str = self.values[0]
         await interaction.response.send_message(
-            f"分を選択してください",
-            view=MinuteView(self.guild, self.date_str, time_str),
-            ephemeral=True
+            "分を選択してください", view=MinuteView(self.guild, self.date_str, self.values[0]), ephemeral=True
         )
-
-class TimeView(View):
-    def __init__(self, guild, date_str):
-        super().__init__(timeout=180)
-        self.add_item(HourSelect(date_str, guild))
 
 class MinuteSelect(discord.ui.Select):
     def __init__(self, date_str, hour_str, guild):
         self.date_str = date_str
         self.hour_str = hour_str
         self.guild = guild
-        options = [
-            discord.SelectOption(label=f"{m:02}", value=f"{m:02}") for m in range(0, 60, 10)
-        ]
-        super().__init__(placeholder="分を選択", options=options)
+        options = [discord.SelectOption(label=f"{m:02}", value=f"{m:02}") for m in range(0, 60, 10)]
+        super().__init__(placeholder="分", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         minute_str = self.values[0]
         time_str = f"{self.hour_str}:{minute_str}"
-
         members = [m for m in self.guild.members if not m.bot]
         await interaction.response.send_message(
-            "👤 面接者を選択してください",
-            view=MemberView(self.guild, self.date_str, time_str, members),
-            ephemeral=True
+            "面接者を選択してください", view=MemberView(self.guild, self.date_str, time_str, members), ephemeral=True
         )
+
+class TimeView(View):
+    def __init__(self, guild, date_str):
+        super().__init__(timeout=180)
+        self.add_item(HourSelect(date_str, guild))
 
 class MinuteView(View):
     def __init__(self, guild, date_str, hour_str):
@@ -102,18 +90,13 @@ class MemberSelect(discord.ui.Select):
         self.guild = guild
         self.date_str = date_str
         self.time_str = time_str
-        options = [
-            discord.SelectOption(label=m.display_name, value=str(m.id))
-            for m in members[:25]
-        ]
-        super().__init__(placeholder="面接者選択", options=options)
+        options = [discord.SelectOption(label=m.display_name, value=str(m.id)) for m in members[:25]]
+        super().__init__(placeholder="面接者", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         uid = int(self.values[0])
         member = interaction.guild.get_member(uid)
-
         save_interview(interaction.guild.id, str(uid), member.display_name, self.date_str, self.time_str)
-
         await interaction.followup.send(
             f"✅ 予約完了\n📅 {self.date_str}\n🕒 {self.time_str}\n👤 {member.mention}"
         )
@@ -132,11 +115,8 @@ class CancelSelect(discord.ui.Select):
             r for r in list_interviews(guild.id)
             if datetime.strptime(r[2] + " " + r[3], "%Y-%m-%d %H:%M") >= datetime.now()
         ]
-        options = [
-            discord.SelectOption(label=f"{r[1]}｜{r[2]} {r[3]}", value=str(r[0]))
-            for r in future_reserves[:25]
-        ]
-        super().__init__(placeholder="キャンセルする面接者を選択", options=options)
+        options = [discord.SelectOption(label=f"{r[1]}｜{r[2]} {r[3]}", value=str(r[0])) for r in future_reserves[:25]]
+        super().__init__(placeholder="キャンセルする面接者", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         uid = self.values[0]
@@ -161,9 +141,7 @@ class MainPanel(View):
     @discord.ui.button(label="キャンセル", style=discord.ButtonStyle.red)
     async def cancel(self, interaction: discord.Interaction, button):
         await interaction.response.send_message(
-            "誰をキャンセルしますか？",
-            view=CancelView(interaction.guild),
-            ephemeral=True
+            "誰をキャンセルしますか？", view=CancelView(interaction.guild), ephemeral=True
         )
 
     @discord.ui.button(label="一覧", style=discord.ButtonStyle.blurple)
@@ -178,7 +156,7 @@ class MainPanel(View):
             msg = "\n".join([f"{r[1]}｜{r[2]} {r[3]}" for r in future_reserves])
         await interaction.response.send_message(msg, ephemeral=True)
 
-# ================= 通知 =================
+# ================= 通知ループ =================
 
 notified_reserves = set()
 
