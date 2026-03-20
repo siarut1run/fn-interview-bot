@@ -115,15 +115,18 @@ class MemberView(View):
 class CancelSelect(discord.ui.Select):
     def __init__(self, guild):
         self.guild = guild
-        # 今後の面接のみ取得
+        # 今後の面接を取得
         future_reserves = [
             r for r in list_interviews(guild.id)
             if datetime.strptime(r[2] + " " + r[3], "%Y-%m-%d %H:%M") >= datetime.now()
         ]
-        # 選択肢を作成、ない場合はダミー選択肢
+        # 選択肢作成、一意の value にする
         if future_reserves:
             options = [
-                discord.SelectOption(label=f"{r[1]}｜{r[2]} {r[3]}", value=str(r[0]))
+                discord.SelectOption(
+                    label=f"{r[1]}｜{r[2]} {r[3]}",
+                    value=f"{r[0]}_{r[2]}_{r[3]}"  # UID + 日時でユニーク化
+                )
                 for r in future_reserves[:25]
             ]
         else:
@@ -131,11 +134,13 @@ class CancelSelect(discord.ui.Select):
         super().__init__(placeholder="キャンセルする面接者", options=options)
 
     async def callback(self, interaction: discord.Interaction):
+        # 選択肢がない場合
         if self.values[0] == "none":
             await interaction.response.send_message("❌ キャンセル可能な面接はありません", ephemeral=True)
             return
 
-        uid = self.values[0]
+        # UID を取り出す
+        uid = int(self.values[0].split("_")[0])
         cancel_interview(interaction.guild.id, uid)
         await interaction.response.send_message(f"❌ キャンセル完了: <@{uid}>", ephemeral=True)
 
